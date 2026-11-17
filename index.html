@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JPSME Attendance</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 12px; background: #f1f3f6; color: #222; }
+    .hidden { display: none; }
+    .panel { background: #fff; border-radius: 10px; padding: 16px; max-width: 480px; margin: 20px auto; text-align: center; }
+    #app { max-width: 480px; margin: 0 auto; }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .top button { padding: 6px 12px; }
+    label { font-weight: bold; font-size: 14px; }
+    select, input[type=text] { width: 100%; padding: 10px; font-size: 16px; margin: 4px 0 8px 0; }
+    #refresh { padding: 6px 12px; font-size: 14px; margin-bottom: 10px; }
+    #stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+    .stat { background: #fff; border-radius: 8px; padding: 8px 4px; text-align: center; }
+    .stat b { display: block; font-size: 22px; }
+    .stat span { font-size: 11px; color: #555; }
+    .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+    #camBtn { width: 100%; padding: 14px; font-size: 18px; margin-bottom: 8px; }
+    #banner { background: #222; color: #fff; text-align: center; padding: 8px; border-radius: 8px 8px 0 0; font-weight: bold; }
+    #cam { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #000; border-radius: 0 0 10px 10px; overflow: hidden; margin-bottom: 10px; }
+    #cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #frame { position: absolute; top: 8%; left: 8%; right: 8%; bottom: 8%; border: 3px solid rgba(255,255,255,0.85); border-radius: 14px; pointer-events: none; }
+    #hint { text-align: center; font-size: 13px; color: #555; margin: -4px 0 10px 0; }
+    #result { border-radius: 10px; padding: 14px; text-align: center; background: #fff; }
+    #result .t { font-size: 20px; font-weight: bold; }
+    #result .n { font-size: 22px; font-weight: bold; margin: 6px 0 2px 0; }
+    #result .m { font-size: 15px; margin-top: 6px; }
+    #result .ev { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
+    .ok { background: #d9f5df !important; border: 2px solid #2e9e48; }
+    .out { background: #d9eaff !important; border: 2px solid #2f6fd0; }
+    .warn { background: #fff3cd !important; border: 2px solid #d9a400; }
+    .bad { background: #fde0e0 !important; border: 2px solid #c62828; }
+    .box { background: #fff; border-radius: 10px; padding: 12px; margin-top: 12px; }
+    .box h4 { margin: 0 0 6px 0; }
+    .box button.act { padding: 10px 14px; font-size: 15px; }
+    .pick { display: block; width: 100%; text-align: left; padding: 10px; margin: 4px 0; font-size: 15px; }
+    #recent { margin: 0; padding-left: 18px; font-size: 13px; }
+    #recent li { margin-bottom: 3px; }
+    #fixSelected { font-size: 14px; margin: 4px 0 8px 0; font-weight: bold; }
+    #fixMsg { margin-top: 8px; font-size: 14px; }
+    #info { font-size: 12px; color: #666; margin-top: 8px; text-align: center; }
+    #signinMsg { color: #b00020; min-height: 20px; }
+  </style>
+</head>
+<body>
+
+  <!-- Sign-in screen -->
+  <div id="signin" class="panel">
+    <h2>JPSME Attendance</h2>
+    <p>Officers: please sign in with your Google account.</p>
+    <p id="signinMsg"></p>
+    <div style="text-align:left; background:#eef3ff; border-radius:8px; padding:10px; margin-bottom:12px; font-size:14px;">
+      <b>Tip:</b> open this page in your phone's regular browser (Chrome or Safari). Links opened inside Messenger, Facebook, or other apps often fail at the Google sign-in.
+      <div style="margin-top:8px;">
+        <button id="copyLink" style="padding:8px 12px;">Copy link</button>
+        <a id="chromeLink" class="hidden" href="#" style="margin-left:10px;">Open in Chrome</a>
+      </div>
+    </div>
+    <div id="gbtn" style="display:flex; justify-content:center;"></div>
+  </div>
+
+  <!-- Main app -->
+  <div id="app" class="hidden">
+    <div class="top">
+      <div><b id="who"></b><div id="role" style="font-size:12px;color:#555"></div></div>
+      <button id="signout">Sign out</button>
+    </div>
+
+    <label for="event">Event</label>
+    <select id="event"></select>
+    <button id="refresh">Refresh events</button>
+
+    <div id="stats">
+      <div class="stat"><b id="sIn">-</b><span>Timed in</span></div>
+      <div class="stat"><b id="sInside">-</b><span>Inside</span></div>
+      <div class="stat"><b id="sDone">-</b><span>Completed</span></div>
+    </div>
+
+    <div class="row">
+      <span>Sound feedback</span>
+      <label><input type="checkbox" id="sound" checked> On</label>
+    </div>
+
+    <button id="camBtn">Start camera</button>
+    <div id="banner" class="hidden"></div>
+    <div id="cam" class="hidden">
+      <video id="video" playsinline muted></video>
+      <div id="frame"></div>
+    </div>
+    <div id="hint" class="hidden">Center the QR code inside the square.</div>
+
+    <div id="result">Select an event, then start the camera.</div>
+
+    <div class="box">
+      <h4>Can't scan a card? Search by name</h4>
+      <input type="text" id="manualSearch" placeholder="" autocomplete="off">
+      <div id="manualResults"></div>
+    </div>
+
+    <div class="box">
+      <h4>Recent scans</h4>
+      <ol id="recent"></ol>
+    </div>
+
+    <div class="box hidden" id="admin">
+      <h4>Admin: correct a record</h4>
+      <input type="text" id="fixSearch" placeholder="Search by name" autocomplete="off">
+      <div id="fixResults"></div>
+      <div id="fixSelected">No student selected.</div>
+      <select id="fixAction">
+        <option value="CLEAR_TIME_OUT">Clear time out (mark as inside again)</option>
+        <option value="DELETE_RECORD">Delete the whole record for this event</option>
+      </select>
+      <input type="text" id="fixReason" placeholder="Reason (required)" autocomplete="off">
+      <button class="act" id="fixBtn">Apply correction</button>
+      <div id="fixMsg"></div>
+    </div>
+
+    <div id="info"></div>
+    <div id="timing" style="font-size:12px; color:#666; text-align:center; margin-top:4px;"></div>
+  </div>
+
+  <canvas id="canvas" class="hidden"></canvas>
+
+  <script>
+    // ---------- SETTINGS ----------
+    const CLIENT_ID = '646402889810-r6dflk4blp6p72tbqh6kme6vs3b230qp.apps.googleusercontent.com';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwyudP0jRC3PE5uG7UC7gZ79wnSOnIiENxyrGBmoADG5AbB4rV8ZDGZFcz9JoA-AARI/exec';
+
+    // ---------- STATE ----------
+    let idToken = null;
+    let events = [];
+    let selectedEvent = '';
+    let scanning = false;
+    let busy = false;
+    let detector = null;
+    let engine = 'none';
+    let stream = null;
+    let lastCode = '';
+    let lastTime = 0;
+    let audioCtx = null;
+    let fixStudent = null;
+    let searchCounter = 0;
+    const recent = [];
+
+    const $ = function (id) { return document.getElementById(id); };
+    const video = $('video');
+    const canvas = $('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const KINDS = {
+      TIME_IN:      { cls: 'ok',   title: 'TIME IN',           buzz: [120],        sound: 'ok' },
+      TIME_OUT:     { cls: 'out',  title: 'TIME OUT',          buzz: [120],        sound: 'out' },
+      DUPLICATE:    { cls: 'warn', title: 'DUPLICATE SCAN',    buzz: [80, 60, 80], sound: 'warn' },
+      COMPLETED:    { cls: 'warn', title: 'ALREADY COMPLETED', buzz: [80, 60, 80], sound: 'warn' },
+      UNREGISTERED: { cls: 'bad',  title: 'NOT REGISTERED',    buzz: [400],        sound: 'bad' },
+      ERROR:        { cls: 'bad',  title: 'ERROR',             buzz: [400],        sound: 'bad' }
+    };
+
+    // ---------- START ----------
+    window.addEventListener('load', function () {
+      idToken = restoreToken();
+      if (idToken) { loadApp(); } else { showSignin(''); }
+      startSignIn();
+    });
+
+    function startSignIn() {
+      if (!(window.google && google.accounts && google.accounts.id)) {
+        setTimeout(startSignIn, 200);
+        return;
+      }
+      google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onCredential, auto_select: true });
+      google.accounts.id.renderButton($('gbtn'), { theme: 'filled_blue', size: 'large', text: 'signin_with' });
+    }
+
+    function onCredential(response) {
+      idToken = response.credential;
+      try {
+        const part = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(atob(part));
+        sessionStorage.setItem('jpsme_token', JSON.stringify({ token: idToken, exp: payload.exp }));
+      } catch (e) { /* not important */ }
+      loadApp();
+    }
+
+    function restoreToken() {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem('jpsme_token') || 'null');
+        if (saved && saved.exp * 1000 > Date.now() + 60000) return saved.token;
+      } catch (e) { /* ignore */ }
+      return null;
+    }
+
+    function clearToken() {
+      idToken = null;
+      try { sessionStorage.removeItem('jpsme_token'); } catch (e) { /* ignore */ }
+    }
+
+    function showSignin(message) {
+      stopCamera();
+      $('app').classList.add('hidden');
+      $('signin').classList.remove('hidden');
+      $('signinMsg').textContent = message || '';
+    }
+
+    function showApp() {
+      $('signin').classList.add('hidden');
+      $('app').classList.remove('hidden');
+    }
+
+    $('signout').onclick = function () {
+      clearToken();
+      if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+      showSignin('You have signed out.');
+    };
+
+    // ---------- TALKING TO THE BACKEND ----------
+    async function api(payload, quiet) {
+      payload.token = idToken;
+      const started = Date.now();
+      const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!quiet) {
+        const total = ((Date.now() - started) / 1000).toFixed(1);
+        $('timing').textContent = 'Last request: ' + total + ' s in total' +
+          (data.ms ? ' (' + (data.ms / 1000).toFixed(1) + ' s on the server)' : '');
+      }
+      return data;
+    }
+    
+    function handleAuthProblem(data) {
+      clearToken();
+      showSignin(data.denied
+        ? data.message + ' Ask an admin to add you in the SETTINGS sheet, or sign in with a different account.'
+        : 'Your sign-in expired. Please sign in again.');
+    }
+
+    async function loadApp() {
+      $('signinMsg').textContent = 'Loading...';
+      let data;
+      try {
+        data = await api({ action: 'init' });
+      } catch (e) {
+        showSignin('Could not reach the server. Check your internet connection and sign in again.');
+        return;
+      }
+      if (!data.ok) {
+        if (data.authError) { handleAuthProblem(data); return; }
+        showSignin('Error: ' + data.message);
+        return;
+      }
+      $('who').textContent = data.officer.name || data.officer.email;
+      $('role').textContent = data.officer.role;
+      $('admin').classList.toggle('hidden', data.officer.role !== 'ADMIN');
+      events = data.events || [];
+      fillEvents();
+      showApp();
+      refreshStats();
+    }
+
+    function eventTitle() {
+      const opt = $('event').selectedOptions[0];
+      return opt && opt.value ? opt.textContent : '';
+    }
+
+    function fillEvents() {
+      const select = $('event');
+      const keep = selectedEvent;
+      select.innerHTML = '';
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = events.length ? '- Select an event -' : '- No events found -';
+      select.appendChild(first);
+      events.forEach(function (ev) {
+        const o = document.createElement('option');
+        o.value = ev.name;
+        o.textContent = ev.title;
+        select.appendChild(o);
+      });
+      const stillThere = events.some(function (ev) { return ev.name === keep; });
+      select.value = stillThere ? keep : '';
+      selectedEvent = select.value;
+      updateCamButton();
+    }
+
+    $('event').onchange = function () {
+      // Changing the event always stops the camera, so a scan can't go to the wrong event
+      const wasScanning = scanning;
+      stopCamera();
+      selectedEvent = $('event').value;
+      setStats(null);
+      updateCamButton();
+      refreshStats();
+      if (selectedEvent) {
+        showPlain('Event selected: ' + eventTitle() + (wasScanning ? '. The camera was stopped. Start it again to scan.' : ''));
+      }
+    };
+
+    $('refresh').onclick = async function () {
+      try {
+        const data = await api({ action: 'init' });
+        if (data.ok) { events = data.events || []; fillEvents(); refreshStats(); }
+        else if (data.authError) handleAuthProblem(data);
+      } catch (e) { showPlain('Could not refresh. Check your connection.'); }
+    };
+
+    async function refreshStats() {
+      if (!selectedEvent) return;
+      try {
+        const data = await api({ action: 'stats', event: selectedEvent });
+        if (data.ok) setStats(data.stats);
+        else if (data.authError) handleAuthProblem(data);
+      } catch (e) { /* the numbers will update on the next scan */ }
+    }
+
+    function setStats(s) {
+      $('sIn').textContent = s ? s.timedIn : '-';
+      $('sInside').textContent = s ? s.inside : '-';
+      $('sDone').textContent = s ? s.completed : '-';
+    }
+
+    // ---------- SOUNDS ----------
+    function getAudio() {
+      if (!$('sound').checked) return null;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      } catch (e) { return null; }
+    }
+
+    function beep(freq, startAt, duration, type) {
+      const ac = getAudio();
+      if (!ac) return;
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.2;
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      const t = ac.currentTime + startAt;
+      osc.start(t);
+      osc.stop(t + duration);
+    }
+
+    function playSound(kind) {
+      if (kind === 'ok') { beep(880, 0, 0.15); }
+      else if (kind === 'out') { beep(660, 0, 0.12); beep(880, 0.15, 0.15); }
+      else if (kind === 'warn') { beep(440, 0, 0.12, 'square'); beep(440, 0.2, 0.12, 'square'); }
+      else { beep(180, 0, 0.5, 'sawtooth'); }
+    }
+
+    // ---------- SHOWING RESULTS ----------
+    function showPlain(text) {
+      const box = $('result');
+      box.className = '';
+      box.textContent = text;
+    }
+
+    function showResult(data) {
+      const kind = KINDS[data.status] || KINDS.ERROR;
+      const box = $('result');
+      box.className = kind.cls;
+      box.innerHTML = '';
+
+      const ev = document.createElement('div');
+      ev.className = 'ev';
+      ev.textContent = 'Event: ' + eventTitle();
+      box.appendChild(ev);
+
+      const t = document.createElement('div');
+      t.className = 't';
+      t.textContent = kind.title;
+      box.appendChild(t);
+
+      if (data.student) {
+        const n = document.createElement('div');
+        n.className = 'n';
+        n.textContent = data.student.name;
+        box.appendChild(n);
+        const b = document.createElement('div');
+        b.textContent = data.student.block;
+        box.appendChild(b);
+      }
+
+      const m = document.createElement('div');
+      m.className = 'm';
+      m.textContent = data.message || '';
+      box.appendChild(m);
+
+      if (navigator.vibrate) navigator.vibrate(kind.buzz);
+      playSound(kind.sound);
+      addRecent(kind.title, data.student ? data.student.name : '(not recognized)');
+    }
+
+    function addRecent(title, name) {
+      const time = new Date().toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+      recent.unshift(time + ' - ' + title + ' - ' + name);
+      if (recent.length > 8) recent.pop();
+      const list = $('recent');
+      list.innerHTML = '';
+      recent.forEach(function (line) {
+        const li = document.createElement('li');
+        li.textContent = line;
+        list.appendChild(li);
+      });
+    }
+
+    // ---------- CAMERA (square) ----------
+    function updateCamButton() {
+      $('camBtn').disabled = !selectedEvent;
+      $('camBtn').textContent = scanning ? 'Stop camera' : 'Start camera';
+    }
+
+    $('camBtn').onclick = function () {
+      getAudio();   // lets the browser allow sounds
+      if (scanning) stopCamera(); else startCamera();
+    };
+
+    async function setupEngine() {
+      if ('BarcodeDetector' in window) {
+        try {
+          const formats = await BarcodeDetector.getSupportedFormats();
+          if (formats.indexOf('qr_code') !== -1) {
+            detector = new BarcodeDetector({ formats: ['qr_code'] });
+            engine = 'built-in reader';
+            return;
+          }
+        } catch (e) { /* use the library */ }
+      }
+      engine = (typeof jsQR !== 'undefined') ? 'jsQR library' : 'none';
+    }
+
+    async function startCamera() {
+      if (!selectedEvent) { showPlain('Please select an event first.'); return; }
+      try {
+        await setupEngine();
+        if (engine === 'none') { showPlain('The QR reading library did not load. Refresh the page.'); return; }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        try {
+          await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+        } catch (e) { /* not supported */ }
+        $('banner').textContent = 'Scanning for: ' + eventTitle();
+        $('banner').classList.remove('hidden');
+        $('cam').classList.remove('hidden');
+        $('hint').classList.remove('hidden');
+        scanning = true;
+        updateCamButton();
+        $('info').textContent = 'Reader: ' + engine;
+        tick();
+      } catch (e) {
+        showPlain('Camera error: ' + e.name + ' - ' + e.message);
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+      video.srcObject = null;
+      $('cam').classList.add('hidden');
+      $('banner').classList.add('hidden');
+      $('hint').classList.add('hidden');
+      updateCamButton();
+    }
+
+    async function tick() {
+      if (!scanning) return;
+      try {
+        if (video.readyState >= 2 && video.videoWidth > 0 && !busy) {
+          // Only the centre square of the picture is read, the same part you can see
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+          const side = Math.min(vw, vh);
+          const sx = (vw - side) / 2;
+          const sy = (vh - side) / 2;
+          const size = Math.min(side, 800);
+          canvas.width = size;
+          canvas.height = size;
+          ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
+
+          let text = null;
+          if (detector) {
+            const codes = await detector.detect(canvas);
+            if (codes.length > 0) text = codes[0].rawValue;
+          } else {
+            const img = ctx.getImageData(0, 0, size, size);
+            const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+            if (code && code.data) text = code.data;
+          }
+          if (text) await handleScannedCode(text);
+        }
+      } catch (e) { /* skip this frame */ }
+      setTimeout(tick, 120);
+    }
+
+    // ---------- RECORDING A SCAN ----------
+    async function submitScan(request, isManual) {
+      if (busy) { if (isManual) showPlain('Please wait, another scan is being checked.'); return; }
+      if (!selectedEvent) { showPlain('Please select an event first.'); return; }
+
+      busy = true;
+      showPlain('Checking...');
+      try {
+        request.event = selectedEvent;
+        const data = await api(request);
+        if (data.authError) {
+          handleAuthProblem(data);
+        } else {
+          showResult(data);
+          if (data.stats) setStats(data.stats);
+        }
+      } catch (e) {
+        showResult({ status: 'ERROR',
+          message: 'Network problem. This scan may not have been recorded, so please scan again.' });
+      } finally {
+        busy = false;
+        lastTime = Date.now();
+      }
+    }
+
+    async function handleScannedCode(text) {
+      const code = String(text).trim();
+      if (!code || busy) return;
+      const now = Date.now();
+      if (code === lastCode && now - lastTime < 5000) return;   // same card still in view
+      lastCode = code;
+      lastTime = now;
+      await submitScan({ action: 'scan', id: code }, false);
+    }
+
+    // ---------- SEARCH BY NAME ----------
+    function attachSearch(inputId, resultsId, onPick) {
+      const input = $(inputId);
+      const list = $(resultsId);
+      let timer = null;
+
+      input.addEventListener('input', function () {
+        clearTimeout(timer);
+        const query = input.value.trim();
+        if (query.length < 2) { list.innerHTML = ''; return; }
+
+        timer = setTimeout(async function () {
+          const mine = ++searchCounter;
+          list.textContent = 'Searching...';
+          try {
+            const data = await api({ action: 'search', query: query });
+            if (mine !== searchCounter) return;   // a newer search has started
+            if (data.authError) { handleAuthProblem(data); return; }
+            list.innerHTML = '';
+            if (!data.ok) { list.textContent = data.message; return; }
+            if (data.students.length === 0) { list.textContent = 'No match.'; return; }
+            data.students.forEach(function (s) {
+              const b = document.createElement('button');
+              b.className = 'pick';
+              b.textContent = s.name + '  -  ' + s.block;
+              b.onclick = function () { onPick(s); };
+              list.appendChild(b);
+            });
+          } catch (e) {
+            list.textContent = 'Search failed. Check your connection.';
+          }
+        }, 250);
+      });
+    }
+
+    // Manual entry: search, tap the student, confirm
+    attachSearch('manualSearch', 'manualResults', async function (s) {
+      if (!selectedEvent) { showPlain('Please select an event first.'); return; }
+      if (!confirm('Record attendance for ' + s.name + ' (' + s.block + ') in "' + eventTitle() + '"?')) return;
+      getAudio();
+      $('manualSearch').value = '';
+      $('manualResults').innerHTML = '';
+      await submitScan({ action: 'scanref', ref: s.ref }, true);
+    });
+
+    // ---------- ADMIN CORRECTIONS ----------
+    attachSearch('fixSearch', 'fixResults', function (s) {
+      fixStudent = s;
+      $('fixSelected').textContent = 'Selected: ' + s.name + ' (' + s.block + ')';
+      $('fixSearch').value = '';
+      $('fixResults').innerHTML = '';
+    });
+
+    $('fixBtn').onclick = async function () {
+      const msg = $('fixMsg');
+      msg.style.color = '#222';
+      msg.textContent = '';
+      if (!selectedEvent) { msg.textContent = 'Please select an event first.'; return; }
+      if (!fixStudent) { msg.textContent = 'Please search for and select a student first.'; return; }
+
+      const action = $('fixAction').value;
+      const reason = $('fixReason').value.trim();
+      if (reason.length < 3) { msg.textContent = 'Please enter a reason.'; return; }
+
+      const what = action === 'DELETE_RECORD' ? 'DELETE the whole record of' : 'CLEAR the time out of';
+      if (!confirm('Are you sure you want to ' + what + ' ' + fixStudent.name + ' in "' + eventTitle() + '"?')) return;
+
+      msg.textContent = 'Working...';
+      try {
+        const data = await api({ action: 'correct', event: selectedEvent, ref: fixStudent.ref,
+                                 correction: action, reason: reason });
+        if (data.authError) { handleAuthProblem(data); return; }
+        msg.textContent = data.message || (data.ok ? 'Done.' : 'Not done.');
+        msg.style.color = data.ok ? '#1b7f3b' : '#b00020';
+        if (data.stats) setStats(data.stats);
+        if (data.ok) {
+          fixStudent = null;
+          $('fixSelected').textContent = 'No student selected.';
+          $('fixReason').value = '';
+        }
+      } catch (e) {
+        msg.style.color = '#b00020';
+        msg.textContent = 'Network problem. Please check and try again.';
+      }
+    };
+    // ---------- NOTE FOR PEOPLE OPENING THE LINK FROM AN APP ----------
+    $('copyLink').onclick = function () {
+      const url = location.origin + location.pathname;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(
+          function () { $('copyLink').textContent = 'Link copied'; },
+          function () { prompt('Copy this link:', url); });
+      } else {
+        prompt('Copy this link:', url);
+      }
+    };
+    if (/Android/i.test(navigator.userAgent)) {
+      const chromeLink = $('chromeLink');
+      chromeLink.href = 'intent://' + location.host + location.pathname +
+                        '#Intent;scheme=https;package=com.android.chrome;end';
+      chromeLink.classList.remove('hidden');
+    }
+
+    // ---------- KEEP THE BACKEND WARM ----------
+    setInterval(function () {
+      if (idToken && !busy && !document.hidden) {
+        api({ action: 'init' }, true).catch(function () { /* ignore */ });
+      }
+    }, 4 * 60 * 1000);
+  </script>
+</body>
+</html>
